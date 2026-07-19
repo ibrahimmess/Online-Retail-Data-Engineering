@@ -15,7 +15,12 @@ $LogFile = Join-Path `
 if (-not (Test-Path $Python)) {
     throw "Python not found: $Python"
 }
+$LogDirectory = Join-Path $ProjectRoot "logs"
 
+New-Item `
+    -ItemType Directory `
+    -Path $LogDirectory `
+    -Force | Out-Null
 & $Python -m src.run_etl *>> $LogFile
 
 if ($LASTEXITCODE -ne 0) {
