@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import os
 import uuid
 
 from src.alerts import emit_alert
@@ -45,44 +46,67 @@ def create_check(
 
 
 def main() -> None:
-    with get_connection() as connection:
-        source = connection.execute(
-            """
-            SELECT batch_id::TEXT
-            FROM audit.source_files
-            WHERE status IN (
-                'WAREHOUSE_LOADED',
-                'SUCCESS'
-            )
-            ORDER BY registered_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
+    batch_id = os.getenv("ETL_BATCH_ID")
 
-    if not source:
-        raise RuntimeError(
-            "No warehouse-loaded batch found."
-        )
+    if not batch_id:
+        with get_connection() as connection:
+            source = connection.execute(
+                """
+                SELECT batch_id::TEXT
+                FROM audit.source_files
+                WHERE status IN (
+                    'WAREHOUSE_LOADED',
+                    'SUCCESS'
+                )
+                ORDER BY registered_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
 
-    batch_id = source[0]
-    run_id = str(uuid.uuid4())
+        if not source:
+            raise RuntimeError(
+                "No warehouse-loaded batch found."
+            )
 
-    with get_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO audit.etl_runs (
-                run_id,
-                batch_id,
-                status
+        batch_id = source[0]
+
+    run_id = os.getenv("ETL_RUN_ID")
+    managed_run = bool(run_id)
+
+    if run_id:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE audit.etl_runs
+                SET
+                    batch_id = %s,
+                    current_stage =
+                        'Data-quality monitoring'
+                WHERE run_id = %s
+                """,
+                (batch_id, run_id),
             )
-            VALUES (
-                %s,
-                %s,
-                'RUNNING'
+    else:
+        run_id = str(uuid.uuid4())
+
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO audit.etl_runs (
+                    run_id,
+                    batch_id,
+                    status,
+                    current_stage
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    'RUNNING',
+                    'Data-quality monitoring'
+                )
+                """,
+                (run_id, batch_id),
             )
-            """,
-            (run_id, batch_id),
-        )
 
     with get_connection() as connection:
         expected_raw_count = connection.execute(
@@ -137,19 +161,8 @@ def main() -> None:
         facts_present = connection.execute(
             """
             SELECT COUNT(*)
-            FROM staging.online_retail_clean
-                AS source
-
-            JOIN warehouse.fact_sales
-                AS fact
-
-                ON fact.invoice_date
-                    = source.invoice_date
-
-                AND fact.source_row_hash
-                    = source.source_row_hash
-
-            WHERE source.batch_id = %s
+            FROM audit.batch_fact_membership
+            WHERE batch_id = %s
             """,
             (batch_id,),
         ).fetchone()[0]
@@ -171,14 +184,23 @@ def main() -> None:
         null_foreign_keys = connection.execute(
             """
             SELECT COUNT(*)
-            FROM warehouse.fact_sales
+            FROM audit.batch_fact_membership
+                AS membership
+
+            JOIN warehouse.fact_sales
+                AS fact
+                ON fact.invoice_date
+                    = membership.invoice_date
+                AND fact.sales_key
+                    = membership.sales_key
+
             WHERE
-                source_batch_id = %s
+                membership.batch_id = %s
                 AND (
-                    date_key IS NULL
-                    OR product_key IS NULL
-                    OR customer_key IS NULL
-                    OR country_key IS NULL
+                    fact.date_key IS NULL
+                    OR fact.product_key IS NULL
+                    OR fact.customer_key IS NULL
+                    OR fact.country_key IS NULL
                 )
             """,
             (batch_id,),
@@ -223,8 +245,17 @@ def main() -> None:
             connection.execute(
                 """
                 SELECT COUNT(*)
-                FROM warehouse.fact_sales_default
-                WHERE source_batch_id = %s
+                FROM audit.batch_fact_membership
+                    AS membership
+
+                JOIN warehouse.fact_sales_default
+                    AS fact
+                    ON fact.invoice_date
+                        = membership.invoice_date
+                    AND fact.sales_key
+                        = membership.sales_key
+
+                WHERE membership.batch_id = %s
                 """,
                 (batch_id,),
             ).fetchone()[0]
@@ -428,7 +459,16 @@ def main() -> None:
         final_status = (
             "FAILED"
             if failure_count
-            else "SUCCESS"
+            else (
+                "RUNNING"
+                if managed_run
+                else "SUCCESS"
+            )
+        )
+
+        finish_run = (
+            bool(failure_count)
+            or not managed_run
         )
 
         connection.execute(
@@ -436,17 +476,22 @@ def main() -> None:
             UPDATE audit.etl_runs
             SET
                 status = %s,
-                finished_at = CURRENT_TIMESTAMP,
+                finished_at = CASE
+                    WHEN %s
+                    THEN CURRENT_TIMESTAMP
+                    ELSE finished_at
+                END,
                 raw_rows = %s,
                 accepted_rows = %s,
                 rejected_rows = %s,
                 duplicate_rows = %s,
-                fact_rows_inserted = %s,
+                fact_rows_reconciled = %s,
                 warning_count = %s
             WHERE run_id = %s
             """,
             (
                 final_status,
+                finish_run,
                 raw_count,
                 staging_count,
                 rejected_count,
@@ -455,6 +500,16 @@ def main() -> None:
                 warning_count,
                 run_id,
             ),
+        )
+
+        source_status = (
+            "FAILED"
+            if failure_count
+            else (
+                "WAREHOUSE_LOADED"
+                if managed_run
+                else "SUCCESS"
+            )
         )
 
         connection.execute(
@@ -466,11 +521,7 @@ def main() -> None:
             WHERE batch_id = %s
             """,
             (
-                (
-                    "FAILED"
-                    if failure_count
-                    else "SUCCESS"
-                ),
+                source_status,
                 batch_id,
             ),
         )

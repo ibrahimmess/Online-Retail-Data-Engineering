@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Time = "06:00"
 )
 
@@ -10,6 +10,10 @@ $Runner = Join-Path `
 
 $TaskName = "Online Retail ETL"
 
+if (-not (Test-Path $Runner)) {
+    throw "Scheduler runner not found: $Runner"
+}
+
 $At = [datetime]::ParseExact(
     $Time,
     "HH:mm",
@@ -18,7 +22,7 @@ $At = [datetime]::ParseExact(
 
 $Action = New-ScheduledTaskAction `
     -Execute "PowerShell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Runner`""
+    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$Runner`""
 
 $Trigger = New-ScheduledTaskTrigger `
     -Daily `
@@ -26,16 +30,21 @@ $Trigger = New-ScheduledTaskTrigger `
 
 $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
-    -ExecutionTimeLimit (
-        New-TimeSpan -Hours 2
-    )
+    -MultipleInstances IgnoreNew `
+    -RestartCount 3 `
+    -RestartInterval (New-TimeSpan -Minutes 10) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
     -Trigger $Trigger `
     -Settings $Settings `
-    -Description "Daily Online Retail ETL" `
-    -Force | Out-Null
+    -Description "Daily Online Retail ETL pipeline" `
+    -Force |
+    Out-Null
 
-Write-Host ("Created scheduled task '$TaskName' for $Time.")
+Write-Host "Created scheduled task '$TaskName' for $Time."
+Write-Host "Runner: $Runner"
+Write-Host "Overlapping runs are ignored."
+Write-Host "Failed runs retry up to three times."

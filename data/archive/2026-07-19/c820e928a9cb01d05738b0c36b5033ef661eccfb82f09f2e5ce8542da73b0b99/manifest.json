@@ -1,10 +1,10 @@
 {
-  "batch_id": "545f32ac-b388-4748-9822-baf039ba311d",
+  "batch_id": "2febea1f-9638-4f0b-b93a-1bf5f4ef7bf2",
   "source_version": 1,
   "source_file": "online_retail.csv",
   "sha256": "c820e928a9cb01d05738b0c36b5033ef661eccfb82f09f2e5ce8542da73b0b99",
   "file_size_bytes": 48581636,
   "pipeline_version": "1.0.0",
-  "archived_at_utc": "2026-07-19T20:01:54.563867+00:00",
-  "archived_path": "C:\\Users\\USER\\Documents\\Online-Retail-Data-Engineering\\data\\archive\\2026-07-19\\c820e928a9cb01d05738b0c36b5033ef661eccfb82f09f2e5ce8542da73b0b99\\online_retail.csv"
+  "archived_at_utc": "2026-07-19T20:55:18.729046+00:00",
+  "archived_path": "data/archive/2026-07-19/c820e928a9cb01d05738b0c36b5033ef661eccfb82f09f2e5ce8542da73b0b99/online_retail.csv"
 }

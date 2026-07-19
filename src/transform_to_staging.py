@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 
 import pandas as pd
 
@@ -603,25 +604,53 @@ def transform_dataframe(
 
 
 def find_latest_batch() -> tuple[str, str]:
+    requested_batch_id = os.getenv("ETL_BATCH_ID")
+
     with get_connection() as connection:
-        source = connection.execute(
-            """
-            SELECT
-                batch_id::TEXT,
-                status
-            FROM audit.source_files
-            WHERE status IN (
-                'RAW_LOADED',
-                'TRANSFORMED',
-                'WAREHOUSE_LOADED',
-                'SUCCESS'
-            )
-            ORDER BY registered_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
+        if requested_batch_id:
+            source = connection.execute(
+                """
+                SELECT
+                    batch_id::TEXT,
+                    status
+                FROM audit.source_files
+                WHERE
+                    batch_id = %s
+                    AND status IN (
+                        'RAW_LOADED',
+                        'TRANSFORMED',
+                        'WAREHOUSE_LOADED',
+                        'SUCCESS'
+                    )
+                """,
+                (requested_batch_id,),
+            ).fetchone()
+        else:
+            source = connection.execute(
+                """
+                SELECT
+                    batch_id::TEXT,
+                    status
+                FROM audit.source_files
+                WHERE status IN (
+                    'RAW_LOADED',
+                    'TRANSFORMED',
+                    'WAREHOUSE_LOADED',
+                    'SUCCESS'
+                )
+                ORDER BY registered_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
 
     if not source:
+        if requested_batch_id:
+            raise RuntimeError(
+                "Requested ETL batch was not found or is not "
+                "ready for transformation: "
+                f"{requested_batch_id}"
+            )
+
         raise RuntimeError(
             "No raw source batch found. "
             "Run python -m src.ingest_raw first."

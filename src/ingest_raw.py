@@ -4,7 +4,7 @@ import uuid
 
 import pandas as pd
 
-from src.config import DATA_FILE
+from src.config import DATA_FILE, PROJECT_ROOT
 from src.database import get_connection
 
 
@@ -108,7 +108,9 @@ def register_source_file(
             (
                 batch_id,
                 DATA_FILE.name,
-                str(DATA_FILE.resolve()),
+                DATA_FILE.relative_to(
+                    PROJECT_ROOT
+                ).as_posix(),
                 source_hash,
                 DATA_FILE.stat().st_size,
                 row_count,
@@ -228,10 +230,10 @@ def main() -> None:
     print(f"Current status: {current_status}")
 
     if current_status in {
-    "RAW_LOADED",
-    "TRANSFORMED",
-    "WAREHOUSE_LOADED",
-    "SUCCESS",
+        "RAW_LOADED",
+        "TRANSFORMED",
+        "WAREHOUSE_LOADED",
+        "SUCCESS",
     }:
         print(
             "This exact source version was already loaded. "

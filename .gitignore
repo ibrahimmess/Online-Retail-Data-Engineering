@@ -5,7 +5,9 @@ __pycache__/
 .pytest_cache/
 
 data/raw/*.csv
-data/archive/**/*.csv
+!data/raw/README.md
 !data/archive/.gitkeep
+!data/archive/README.md
 
 logs/*.log
+!logs/.gitkeep

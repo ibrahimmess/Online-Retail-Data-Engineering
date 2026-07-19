@@ -66,6 +66,10 @@ def main() -> None:
             archived_file,
         )
 
+    archived_relative_path = archived_file.relative_to(
+        PROJECT_ROOT
+    ).as_posix()
+
     manifest = {
         "batch_id": batch_id,
         "source_version": source_version,
@@ -78,9 +82,7 @@ def main() -> None:
         "archived_at_utc": datetime.now(
             timezone.utc
         ).isoformat(),
-        "archived_path": str(
-            archived_file.resolve()
-        ),
+        "archived_path": archived_relative_path,
     }
 
     manifest_file = (
@@ -107,7 +109,7 @@ def main() -> None:
             WHERE batch_id = %s
             """,
             (
-                str(archived_file.resolve()),
+                archived_relative_path,
                 batch_id,
             ),
         )

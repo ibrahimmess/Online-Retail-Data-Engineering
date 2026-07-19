@@ -22,7 +22,7 @@ CHECK (
 CREATE TABLE IF NOT EXISTS audit.etl_runs (
     run_id UUID PRIMARY KEY,
 
-    batch_id UUID NOT NULL
+    batch_id UUID
         REFERENCES audit.source_files(batch_id),
 
     status TEXT NOT NULL CHECK (
@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS audit.etl_runs (
             'FAILED'
         )
     ),
+
+    current_stage TEXT,
 
     started_at TIMESTAMPTZ NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +45,7 @@ CREATE TABLE IF NOT EXISTS audit.etl_runs (
     rejected_rows BIGINT,
     duplicate_rows BIGINT,
     fact_rows_inserted BIGINT,
+    fact_rows_reconciled BIGINT,
 
     warning_count INTEGER NOT NULL DEFAULT 0,
 

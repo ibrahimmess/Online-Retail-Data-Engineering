@@ -217,6 +217,14 @@ Expected warehouse results:
 | Net revenue | 9,748,131.07 |
 | Cached reporting rows | 314 |
 
+The orchestrator creates an `audit.etl_runs` record before the first ETL stage. It updates `current_stage` during execution, records the actual number of fact rows inserted during that run, stores the number of accepted rows reconciled to facts, and records failures with an error message.
+
+Inspect the latest run with:
+
+```powershell
+docker compose exec postgres psql -U retail -d retail_dw -c "SELECT run_id, batch_id, status, current_stage, fact_rows_inserted, fact_rows_reconciled, warning_count, error_message, started_at, finished_at FROM audit.etl_runs ORDER BY started_at DESC LIMIT 5;"
+```
+
 ## Cleaning and transformation rules
 
 The pipeline:
@@ -276,7 +284,13 @@ Each source file is identified by its SHA-256 checksum. The audit layer stores:
 - ingestion status;
 - registration and update timestamps.
 
-Previous source versions are archived with a manifest for reproducibility and historical analysis. Warehouse records retain batch and source-row references for traceability.
+Previous source versions are archived with a manifest for reproducibility and historical analysis. Archive paths are stored relative to the project root, for example:
+
+```text
+data/archive/2026-07-19/<sha256>/online_retail.csv
+```
+
+The warehouse stores one canonical fact for a repeated invoice line. `audit.batch_fact_membership` records every source version in which that fact appeared, so unchanged records remain traceable across snapshot deliveries. Include at least one generated archive in the final submission, or submit the source dataset separately when file-size limits apply.
 
 ## Metadata management
 
@@ -331,15 +345,39 @@ See [docs/performance.md](docs/performance.md).
 
 ## Scheduling
 
-The ETL process can be run regularly using Windows Task Scheduler.
-
-The scheduled command should activate the project environment and run:
+Register a daily Windows Task Scheduler job from the project root. Open PowerShell as Administrator and run:
 
 ```powershell
-python -m src.run_etl
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\create_daily_task.ps1 -Time "06:00"
 ```
 
-The schedule can be daily or hourly depending on how frequently a new source file becomes available. Logs and audit records should be reviewed after every scheduled execution.
+Verify that the task exists:
+
+```powershell
+Get-ScheduledTask -TaskName "Online Retail ETL"
+```
+
+Run it immediately for evidence:
+
+```powershell
+Start-ScheduledTask -TaskName "Online Retail ETL"
+Start-Sleep -Seconds 10
+Get-Content .\logs\task_scheduler.log -Tail 50
+```
+
+The task ignores a new trigger while a previous ETL run is still active. Failed scheduled executions retry up to three times at ten-minute intervals. Scheduled output is appended to:
+
+```text
+logs/task_scheduler.log
+```
+
+For the final submission, include a screenshot of the registered task or export its definition:
+
+```powershell
+Export-ScheduledTask -TaskName "Online Retail ETL" `
+    | Out-File reports\online_retail_etl_task.xml -Encoding utf8
+```
 
 ## Final verification
 

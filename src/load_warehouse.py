@@ -1,30 +1,76 @@
+import os
+
 from src.database import get_connection
 
 
 def find_latest_batch() -> tuple[str, str]:
+    requested_batch_id = os.getenv("ETL_BATCH_ID")
+
     with get_connection() as connection:
-        result = connection.execute(
-            """
-            SELECT
-                batch_id::TEXT,
-                status
-            FROM audit.source_files
-            WHERE status IN (
-                'TRANSFORMED',
-                'WAREHOUSE_LOADED',
-                'SUCCESS'
-            )
-            ORDER BY registered_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
+        if requested_batch_id:
+            result = connection.execute(
+                """
+                SELECT
+                    batch_id::TEXT,
+                    status
+                FROM audit.source_files
+                WHERE
+                    batch_id = %s
+                    AND status IN (
+                        'TRANSFORMED',
+                        'WAREHOUSE_LOADED',
+                        'SUCCESS'
+                    )
+                """,
+                (requested_batch_id,),
+            ).fetchone()
+        else:
+            result = connection.execute(
+                """
+                SELECT
+                    batch_id::TEXT,
+                    status
+                FROM audit.source_files
+                WHERE status IN (
+                    'TRANSFORMED',
+                    'WAREHOUSE_LOADED',
+                    'SUCCESS'
+                )
+                ORDER BY registered_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
 
     if not result:
+        if requested_batch_id:
+            raise RuntimeError(
+                "Requested ETL batch was not found or is not "
+                "ready for warehouse loading: "
+                f"{requested_batch_id}"
+            )
+
         raise RuntimeError(
             "No transformed batch found."
         )
 
     return result[0], result[1]
+
+
+def record_inserted_rows(inserted_rows: int) -> None:
+    run_id = os.getenv("ETL_RUN_ID")
+
+    if not run_id:
+        return
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE audit.etl_runs
+            SET fact_rows_inserted = %s
+            WHERE run_id = %s
+            """,
+            (inserted_rows, run_id),
+        )
 
 
 def main() -> None:
@@ -64,10 +110,21 @@ def main() -> None:
             (batch_id,),
         ).fetchone()[0]
 
+        membership_count = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM audit.batch_fact_membership
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        ).fetchone()[0]
+
     if (
         current_status
         in {"WAREHOUSE_LOADED", "SUCCESS"}
         and fact_presence_count
+        == staging_count
+        and membership_count
         == staging_count
     ):
         print(
@@ -78,6 +135,11 @@ def main() -> None:
             f"Fact candidates present: "
             f"{fact_presence_count:,}"
         )
+        print(
+            f"Batch memberships present: "
+            f"{membership_count:,}"
+        )
+        record_inserted_rows(0)
         return
 
     print("Loading dimensions and facts...")
@@ -100,6 +162,8 @@ def main() -> None:
             """,
             (batch_id,),
         )
+
+    record_inserted_rows(inserted_rows)
 
     with get_connection() as connection:
         counts = {

@@ -1,28 +1,55 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-
 Set-Location $ProjectRoot
 
 $Python = Join-Path `
     $ProjectRoot `
     ".venv\Scripts\python.exe"
 
-$LogFile = Join-Path `
+$LogDirectory = Join-Path `
     $ProjectRoot `
-    "logs\task_scheduler.log"
+    "logs"
+
+$LogFile = Join-Path `
+    $LogDirectory `
+    "task_scheduler.log"
 
 if (-not (Test-Path $Python)) {
     throw "Python not found: $Python"
 }
-$LogDirectory = Join-Path $ProjectRoot "logs"
 
 New-Item `
     -ItemType Directory `
     -Path $LogDirectory `
     -Force | Out-Null
+
+"$(Get-Date -Format o) | Scheduled ETL started" |
+    Out-File `
+        -FilePath $LogFile `
+        -Append `
+        -Encoding utf8
+
+$PreviousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+
 & $Python -m src.run_etl *>> $LogFile
 
-if ($LASTEXITCODE -ne 0) {
-    throw "ETL failed. Read $LogFile"
+$PythonExitCode = $LASTEXITCODE
+$ErrorActionPreference = $PreviousErrorActionPreference
+
+if ($PythonExitCode -ne 0) {
+    "$(Get-Date -Format o) | Scheduled ETL failed with exit code $PythonExitCode" |
+        Out-File `
+            -FilePath $LogFile `
+            -Append `
+            -Encoding utf8
+
+    throw "ETL failed with exit code $PythonExitCode. Read $LogFile"
 }
+
+"$(Get-Date -Format o) | Scheduled ETL completed" |
+    Out-File `
+        -FilePath $LogFile `
+        -Append `
+        -Encoding utf8

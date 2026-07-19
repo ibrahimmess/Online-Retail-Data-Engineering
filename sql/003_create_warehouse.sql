@@ -240,3 +240,39 @@ END $$;
 CREATE TABLE IF NOT EXISTS
 warehouse.fact_sales_default
 PARTITION OF warehouse.fact_sales DEFAULT;
+
+CREATE TABLE IF NOT EXISTS
+audit.batch_fact_membership (
+    batch_id UUID NOT NULL
+        REFERENCES audit.source_files(batch_id),
+
+    invoice_date DATE NOT NULL,
+    sales_key BIGINT NOT NULL,
+    source_row_hash CHAR(64) NOT NULL,
+
+    recorded_at TIMESTAMPTZ NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (
+        batch_id,
+        invoice_date,
+        source_row_hash
+    ),
+
+    FOREIGN KEY (
+        invoice_date,
+        sales_key
+    ) REFERENCES warehouse.fact_sales (
+        invoice_date,
+        sales_key
+    )
+);
+
+
+CREATE INDEX IF NOT EXISTS
+idx_batch_fact_membership_fact
+ON audit.batch_fact_membership (
+    invoice_date,
+    sales_key
+);
+

@@ -314,6 +314,39 @@ BEGIN
     GET DIAGNOSTICS
         inserted_fact_rows = ROW_COUNT;
 
+
+    INSERT INTO audit.batch_fact_membership (
+        batch_id,
+        invoice_date,
+        sales_key,
+        source_row_hash
+    )
+    SELECT
+        source.batch_id,
+        fact.invoice_date,
+        fact.sales_key,
+        fact.source_row_hash
+
+    FROM staging.online_retail_clean
+        AS source
+
+    JOIN warehouse.fact_sales
+        AS fact
+        ON fact.invoice_date
+            = source.invoice_date
+        AND fact.source_row_hash
+            = source.source_row_hash
+
+    WHERE source.batch_id = p_batch_id
+
+    ON CONFLICT (
+        batch_id,
+        invoice_date,
+        source_row_hash
+    )
+    DO NOTHING;
+
+
     RETURN inserted_fact_rows;
 END;
 $$;
